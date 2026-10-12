@@ -9,6 +9,7 @@ from aiogram import Bot, Dispatcher, Router
 from aiogram.types import BotCommand, Message
 from dotenv import load_dotenv
 from filelock import FileLock
+from pydantic import ValidationError
 
 from .ai import Recognizer
 from .config import RuntimeConfigurationError, Settings
@@ -151,7 +152,20 @@ def main():
         if args.id_only or mode == "id-only":
             asyncio.run(id_only())
         else:
-            asyncio.run(run(Settings(), args.check))
+            try:
+                settings = Settings()
+            except ValidationError as exc:
+                # Log only schema field names; never input, context or validator messages.
+                invalid = sorted({
+                    str(error["loc"][0]).upper()
+                    if error["loc"] and error["loc"][0] in Settings.model_fields
+                    else "SETTINGS_CONSISTENCY"
+                    for error in exc.errors(include_input=False, include_context=False)
+                })
+                raise RuntimeConfigurationError(
+                    "Invalid settings: " + ", ".join(invalid)
+                ) from None
+            asyncio.run(run(settings, args.check))
     except KeyboardInterrupt:
         pass
     except RuntimeConfigurationError as exc:
